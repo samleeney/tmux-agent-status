@@ -819,13 +819,24 @@ render() {
 
     # ── Footer ──
     buf+="$sep"
+    # A wrapped footer scrolls the frame and breaks mouse row mapping.
+    # Prefer shorter hints, then leave a spare column when clamping.
+    local ftxt fcol
     if (( WAIT_INPUT_ACTIVE )); then
-        buf+=" ${BCYN}Wait minutes for ${WAIT_INPUT_TARGET}: ${RST}${WAIT_INPUT_BUF}\033[K"
+        ftxt=" Wait minutes for ${WAIT_INPUT_TARGET}: ${WAIT_INPUT_BUF}"
+        fcol="$BCYN"
     elif (( SEARCH_ACTIVE )); then
-        buf+=" ${DIM}type to filter  ⏎ select  esc cancel${RST}\033[K"
+        ftxt=" type to filter  ⏎ select  esc cancel"
+        (( ${#ftxt} >= LW )) && ftxt=" filter  ⏎ sel  esc cancel"
+        fcol="$DIM"
     else
-        buf+=" ${DIM}⏎ select  / search  w wait  p park  m mode  q quit${RST}\033[K"
+        ftxt=" ⏎ select  / search  w wait  p park  m mode  q quit"
+        (( ${#ftxt} >= LW )) && ftxt=" ⏎ sel  / find  w wait  p park  q quit"
+        (( ${#ftxt} >= LW )) && ftxt=" ⏎sel /find w-wait p-park q-quit"
+        fcol="$DIM"
     fi
+    (( LW > 1 && ${#ftxt} >= LW )) && ftxt="${ftxt:0:$((LW - 1))}"
+    buf+="${fcol}${ftxt}${RST}\033[K"
 
     # Flush entire frame at once (no flicker)
     printf '\033[H%b' "$buf"
@@ -1108,7 +1119,8 @@ while true; do
     fi
     (( NEEDS_COLLECT )) && _COLLECT_TICK=0
 
-    local_read_timeout=1
+    # Refresh signals interrupt read; idle polling only covers missed signals.
+    local_read_timeout=30
     (( _HAS_WORKING )) && local_read_timeout=0.25
 
     (( _COLLECT_TICK++ ))
@@ -1124,7 +1136,18 @@ while true; do
         NEEDS_RENDER=1
         # Handle escape sequences (arrows, mouse) shared by both modes.
         _handle_escape() {
-            read -rsn2 -t 0.1 seq
+            local seq="" part=""
+            read -rsn1 -t 0.1 seq
+            if [[ "$seq" == '[' ]]; then
+                # Consume the full CSI sequence, including modifier parameters.
+                while read -rsn1 -t 0.1 part; do
+                    seq+="$part"
+                    [[ "$seq" == '[<' || "$part" == [@-~] ]] && break
+                done
+            elif [[ "$seq" == O ]]; then
+                read -rsn1 -t 0.1 part
+                seq+="$part"
+            fi
             case "$seq" in
                 '[A') (( SELECTED > SESS_START )) && ((SELECTED--)); return 0 ;;
                 '[B') (( SELECTED < SEL_COUNT - 1 )) && ((SELECTED++)); return 0 ;;
@@ -1155,8 +1178,16 @@ while true; do
                     fi
                     return 0
                     ;;
+                '[C')
+                    # Move focus from the left sidebar to the adjacent pane.
+                    tmux select-pane -t "$SELF_PANE" -R >/dev/null 2>&1
+                    return 0
+                    ;;
             esac
-            return 1  # unhandled
+
+            # Swallow unknown key sequences; only bare Escape dismisses.
+            [ -n "$seq" ] && return 0
+            return 1  # unhandled (bare Escape)
         }
 
         if (( WAIT_INPUT_ACTIVE )); then

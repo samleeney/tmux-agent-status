@@ -12,6 +12,7 @@ source "$SCRIPT_DIR/lib/sidebar-clients.sh"
 
 CACHE_FILE="$STATUS_DIR/.sidebar-cache"
 PID_FILE="$STATUS_DIR/.sidebar-collector.pid"
+LOCK_FILE="$STATUS_DIR/.sidebar-collector.flock"
 RUN_ONCE=0
 
 # Poll tuning. The loop wakes every TICK_SECONDS to animate the spinner for
@@ -43,15 +44,22 @@ if [[ "${1:-}" == "--once" ]]; then
     RUN_ONCE=1
 fi
 
-# Singleton guard
-if [ -f "$PID_FILE" ]; then
+# Only the persistent daemon owns the singleton lock. One-shot refreshes use
+# their own temporary cache files and must not remove the daemon's PID file.
+if (( ! RUN_ONCE )); then
+    if [[ "${1:-}" != --lock-held ]]; then
+        exec "$BASH" "$SCRIPT_DIR/with-collector-lock.sh" "$LOCK_FILE" \
+            "$BASH" "${BASH_SOURCE[0]}" --lock-held
+    fi
+    # Also respect a daemon started before the kernel-lock implementation.
     old_pid=$(cat "$PID_FILE" 2>/dev/null)
-    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
         exit 0
     fi
+    echo $$ > "$PID_FILE"
+    trap 'rm -f "$PID_FILE"' EXIT
+    trap 'exit 0' INT TERM HUP
 fi
-echo $$ > "$PID_FILE"
-trap 'rm -f "$PID_FILE"' EXIT
 
 # Persistent cross-cycle state (survives across collect_data calls)
 declare -A KNOWN_AGENTS=()
@@ -91,8 +99,8 @@ serialize_cache() {
                 ((si++))
             fi
         done
-    } > "${CACHE_FILE}.tmp"
-    mv -f "${CACHE_FILE}.tmp" "$CACHE_FILE"
+    } > "${CACHE_FILE}.tmp.$$"
+    mv -f "${CACHE_FILE}.tmp.$$" "$CACHE_FILE"
 }
 
 publish_status_summary() {

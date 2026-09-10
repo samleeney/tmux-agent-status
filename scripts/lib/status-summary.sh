@@ -84,11 +84,11 @@ write_status_summary_cache() {
     local total_agents="$4"
     shift 4
 
-    printf '%s\n' "$working:$waiting:$done:$total_agents" > "${STATUS_LINE_COUNTS_FILE}.tmp"
-    mv -f "${STATUS_LINE_COUNTS_FILE}.tmp" "$STATUS_LINE_COUNTS_FILE"
+    printf '%s\n' "$working:$waiting:$done:$total_agents" > "${STATUS_LINE_COUNTS_FILE}.tmp.$$"
+    mv -f "${STATUS_LINE_COUNTS_FILE}.tmp.$$" "$STATUS_LINE_COUNTS_FILE"
     {
         render_status_summary 0 "$@"
         render_status_summary 1 "$@"
-    } > "${STATUS_LINE_CACHE_FILE}.tmp"
-    mv -f "${STATUS_LINE_CACHE_FILE}.tmp" "$STATUS_LINE_CACHE_FILE"
+    } > "${STATUS_LINE_CACHE_FILE}.tmp.$$"
+    mv -f "${STATUS_LINE_CACHE_FILE}.tmp.$$" "$STATUS_LINE_CACHE_FILE"
 }
