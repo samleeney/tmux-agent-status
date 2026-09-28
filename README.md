@@ -14,6 +14,7 @@ Demo video: [`demo/full.mp4`](demo/full.mp4)
 - Hierarchical `fzf` target switcher for quick jumps and close actions
 - Hook-based Claude Code and Codex tracking
 - Wait and park modes for triaging work
+- Persistent unread completion inbox, separate from live agent status
 - Compact status-line summary with finish notifications
 - Works across multi-pane sessions, worktrees, and remote tmux sessions
 
@@ -314,12 +315,50 @@ Inside the popup switcher:
 - `Ctrl-P` parks or unparks the selected session, window, or pane
 - `Ctrl-W` opens wait mode for the selected target, or cancels an existing wait
 - `Ctrl-R` resets tracked state
+- `Ctrl-A` marks unread completions in the selected pane, window, or session as read
 
 Inside the sidebar:
 
 - `x`, `p`, and `w` perform the same close, park, and wait actions without interfering with popup search input
+- `a` marks the selected pane, window, or session's completions as read
 
-`prefix + N` follows the same top-to-bottom order as the `INBOX` section. The inbox is ordered by session name, then by tmux window order within each session.
+`prefix + N` visits unread completions first, in their displayed order. When none
+are available, it follows the existing `INBOX` order: session name, then tmux
+window order within each session.
+
+### Unread completions
+
+The sidebar's **RECENTLY READY** section and the switcher's **[recently ready]**
+rows remember completed work you have not visited. Claude Code, Codex CLI and
+Devin CLI record completions when a `Stop` hook changes an active pane to `done`.
+Startup events, repeated `Stop` events and Claude's still-running background
+tasks do not create new entries. Existing hook configuration is sufficient.
+
+Entries are saved on disk and survive sidebar/collector restarts and switcher
+resets. Each pane has one unread entry, updated by a later completion, with the
+most recent completions first. The record remains even if the agent starts
+working again; its live status is still shown separately in the normal views.
+
+Visiting the pane through any tmux navigation marks it read. A completion in a
+pane already active in an attached tmux client is considered read immediately.
+Highlighting a row or showing its preview does not mark it read. Use `a` in the
+sidebar or `Ctrl-A` in the switcher to acknowledge work without visiting it;
+window/session rows acknowledge all panes in that scope. Reading a completion
+does not change the agent's `working`, `done`, or `ask` state.
+
+Parked and timed-wait panes keep their unread entries, hidden until they are
+available again. Both tree and agents views show unread completions. The live
+`INBOX` continues to show current `done`/`ask` work independently, so a pane may
+appear there after its unread entry is cleared. Popup rows refresh every two
+seconds when `curl` is installed.
+
+Completion records are local to a tmux server and pane process. Renaming a
+session preserves them; closing or respawning a pane retires its old records
+when the inbox is next collected. This does not restore agents after a tmux
+server restart, or collect completion history from remote status files and
+custom agents that only write status files.
+
+Disable the additional inbox with `set -g @agent-completion-inbox "off"`.
 
 Parking, waiting, and closing always apply to the selected scope only:
 
@@ -341,6 +380,7 @@ set -g @agent-park-key "p"
 set -g @agent-switcher-style "both"        # popup | sidebar | both
 set -g @agent-status-display-method "popup" # popup | window
 set -g @agent-sidebar-width "42"
+set -g @agent-completion-inbox "on"       # on | off; unread completion history
 
 # Switcher view (prefix + S). "tree" is the hierarchical
 # session/window/pane list (default). "agents" is a flat list of every
@@ -362,7 +402,7 @@ a positive number of seconds; the collection count must be an integer from
 
 The switcher popup has two views. **Tree** (default) is the hierarchical session/window/pane list; tab expands/collapses. **Agents** is a flat list of every agent pane (any status) sorted by priority — `ask`, `done`, `working`, `wait`, `parked` — with a live preview pane and 2-second refresh. Press `ctrl-f` inside the popup to toggle between views.
 
-The sidebar has the same two views, toggled with `m` from inside the sidebar pane (alongside `w`/`p`/`x` for wait/park/close). In **tree** mode the SESSIONS section lists every session and collapses single-agent sessions to one row; the INBOX section surfaces `done`/`ask` work. In **agents** mode the SESSIONS section is filtered to sessions/worktrees that contain agent panes and every agent pane is expanded; INBOX is suppressed because it would duplicate the same rows.
+The sidebar has the same two views, toggled with `m` from inside the sidebar pane (alongside `w`/`p`/`x` for wait/park/close). In **tree** mode the SESSIONS section lists every session and collapses single-agent sessions to one row; the INBOX section surfaces `done`/`ask` work. In **agents** mode the SESSIONS section is filtered to sessions/worktrees that contain agent panes and every agent pane is expanded; the live INBOX is suppressed because it would duplicate the same rows. RECENTLY READY remains visible in both modes until its completions are acknowledged.
 
 ## Notification Sounds
 

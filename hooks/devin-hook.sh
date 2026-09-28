@@ -11,6 +11,9 @@ WAIT_DIR="$STATUS_DIR/wait"
 PARKED_DIR="$STATUS_DIR/parked"
 PANE_DIR="$STATUS_DIR/panes"
 REFRESH_FILE="$STATUS_DIR/.sidebar-refresh"
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../scripts/lib/completion-inbox.sh
+source "$HOOK_DIR/../scripts/lib/completion-inbox.sh"
 mkdir -p "$STATUS_DIR" "$WAIT_DIR" "$PARKED_DIR" "$PANE_DIR"
 [ -f "$REFRESH_FILE" ] || : > "$REFRESH_FILE"
 
@@ -23,6 +26,15 @@ in_remote_session() {
 
 get_tmux_session() {
     local tmux_session=""
+
+    # Hooks belong to their agent pane, even when another client/window has focus.
+    if [ -n "${TMUX_PANE:-}" ]; then
+        tmux_session=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+        if [ -n "$tmux_session" ]; then
+            printf '%s\n' "$tmux_session"
+            return 0
+        fi
+    fi
 
     if [ -n "${TMUX:-}" ] || in_remote_session; then
         tmux_session=$(tmux display-message -p '#{session_name}' 2>/dev/null)
@@ -58,8 +70,13 @@ set_status() {
     if [ -n "${TMUX_PANE:-}" ]; then
         local pane_file="$PANE_DIR/${tmux_session}_${TMUX_PANE}.status"
         local agent_file="$PANE_DIR/${tmux_session}_${TMUX_PANE}.agent"
+        local previous_status=""
+        [ -f "$pane_file" ] && previous_status=$(cat "$pane_file" 2>/dev/null)
         echo "$requested_status" > "$pane_file"
         echo "devin" > "$agent_file"
+        if [ "${HOOK_TYPE:-}" = Stop ]; then
+            completion_record "$TMUX_PANE" devin "$previous_status" "$requested_status"
+        fi
 
         session_status="done"
         local existing_pane_file=""

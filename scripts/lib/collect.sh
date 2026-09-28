@@ -18,6 +18,9 @@
 [[ -n "${_COLLECT_LIB_LOADED:-}" ]] && return 0
 _COLLECT_LIB_LOADED=1
 
+# shellcheck source=completion-inbox.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/completion-inbox.sh"
+
 # ─── PID ancestry helpers ─────────────────────────────────────────
 
 _build_pid_map() {
@@ -71,6 +74,7 @@ _sidebar_mode() {
 # ─── Main collection ──────────────────────────────────────────────
 collect_data() {
     expire_wait_timers >/dev/null
+    completion_ack_active
 
     local SIDEBAR_MODE
     SIDEBAR_MODE=$(_sidebar_mode)
@@ -82,6 +86,12 @@ collect_data() {
         cur_mtime=$(stat -f %m "$STATUS_DIR" "$PARKED_DIR" "$WAIT_DIR" "$PANE_DIR" "$REFRESH_FILE" 2>/dev/null)
     else
         cur_mtime=$(stat -c %Y "$STATUS_DIR" "$PARKED_DIR" "$WAIT_DIR" "$PANE_DIR" "$REFRESH_FILE" 2>/dev/null)
+    fi
+    # Creation and acknowledgement can happen in the same second. Immutable
+    # event filenames detect those changes even on filesystems with coarse mtimes.
+    if [ -n "${COMPLETION_DIR:-}" ]; then
+        local completion_files=("$COMPLETION_DIR/"*.unread)
+        cur_mtime+="|${completion_files[*]}"
     fi
     if [[ "$cur_mtime" == "$_LAST_STATUS_MTIME" ]]; then
         _COLLECT_CHANGED=0
@@ -514,6 +524,19 @@ collect_data() {
 
         _emit_agents "$sname"
     }
+
+    # Unread completions have their own history, independent of live status.
+    # They remain visible in agents mode too, where the live INBOX is hidden.
+    RECENT_COUNT=0
+    local completed_at completed_pane completed_session completed_window completed_index completed_agent completed_name
+    while IFS=$'\t' read -r completed_at completed_pane completed_session completed_window completed_index completed_agent completed_name; do
+        [ -n "$completed_pane" ] || continue
+        (( RECENT_COUNT == 0 )) && ENTRIES+=("G|RECENTLY READY|green")
+        ENTRIES+=("I|${completed_session}|${completed_pane}|${completed_session} › ${completed_name} .${completed_index} (${completed_agent})|done")
+        SEL_NAMES+=("${completed_session}:${completed_pane}")
+        SEL_TYPES+=("P")
+        RECENT_COUNT=$((RECENT_COUNT + 1))
+    done < <(completion_inbox_rows)
 
     # ── INBOX ────────────────────────────────────────────────────
     if [[ "$SIDEBAR_MODE" != "agents" ]]; then

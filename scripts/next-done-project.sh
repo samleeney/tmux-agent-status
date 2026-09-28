@@ -100,6 +100,12 @@ for entry in "${ENTRIES[@]}"; do
     sel_index=$((sel_index + 1))
 done
 
+# Unread completions take precedence; otherwise retain the live inbox order.
+if (( ${RECENT_COUNT:-0} > 0 )); then
+    target_names=("${target_names[@]:0:RECENT_COUNT}")
+    target_types=("${target_types[@]:0:RECENT_COUNT}")
+fi
+
 if (( ${#target_names[@]} == 0 )); then
     tmux display-message "No inbox items"
     exit 1

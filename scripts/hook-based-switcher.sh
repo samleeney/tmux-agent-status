@@ -184,6 +184,7 @@ toggle_expand() {
 }
 
 get_switcher_rows() {
+    get_completion_rows
     local tab=$'\t'
     declare -A session_seen=()
     declare -A session_windows=()
@@ -295,6 +296,7 @@ get_switcher_list() {
 # priority then by tmux list-panes order. Emits the same `P\t<session>:<pane_id>\t<display>`
 # row shape as get_switcher_rows so the existing fzf bindings continue to work.
 get_agents_rows() {
+    get_completion_rows
     local tab=$'\t'
 
     {
@@ -330,6 +332,15 @@ get_agents_rows() {
     done < <(tmux list-panes -a -F \
         "#{session_name}${tab}#{pane_id}${tab}#{window_index}${tab}#{window_name}${tab}#{pane_current_command}${tab}#{pane_title}" 2>/dev/null)
     } | sort -k1,1nr -k2,2n | cut -f3-
+}
+
+get_completion_rows() {
+    local stamp pane session window index agent name
+    while IFS=$'\t' read -r stamp pane session window index agent name; do
+        [ -n "$pane" ] || continue
+        printf 'C\t%s:%s\t\033[1;32m✓\033[0m  [recently ready] %s:%s.%s [%s] %s\n' \
+            "$session" "$pane" "$session" "$window" "$index" "$agent" "$name"
+    done < <(completion_inbox_rows)
 }
 
 emit_rows_for_mode() {
@@ -414,7 +425,7 @@ parse_args() {
                 SWITCHER_ARG1="${2:-}"
                 shift 2
                 ;;
-            --close|--popup-close|--toggle-expand|--close-fzf-actions)
+            --close|--popup-close|--toggle-expand|--close-fzf-actions|--mark-read)
                 SWITCHER_COMMAND="$1"
                 SWITCHER_ARG1="${2:-}"
                 SWITCHER_ARG2="${3:-}"
@@ -486,6 +497,10 @@ perform_full_reset() {
 parse_args "$@"
 
 case "${SWITCHER_COMMAND:-}" in
+    --mark-read)
+        selection_mark_read "$SWITCHER_ARG1" "$SWITCHER_ARG2"
+        exit 0
+        ;;
     --rows)
         emit_rows_for_mode
         exit 0
@@ -630,14 +645,16 @@ else
     trap 'rm -f "$socket"' EXIT
 fi
 
-# Background poker for agents-mode live refresh. Only pokes while
-# mode=agents — in tree mode it idles (manual reload via ctrl-r).
+# Refresh unread completions in either view, as well as the existing live
+# agents list. Stable row identities keep expansion/selection intact.
 if command -v curl >/dev/null 2>&1; then
+    refresh_completions=0
+    completion_inbox_enabled && refresh_completions=1
     refresh_action=$(printf 'reload(bash %q --state-dir %q --rows)' "$0" "$state_dir")
     (
         while [ ! -S "$socket" ]; do sleep 0.1; done
         while [ -S "$socket" ]; do
-            if [ "$(current_mode)" = "agents" ]; then
+            if [ "$refresh_completions" = 1 ] || [ "$(current_mode)" = "agents" ]; then
                 curl --silent --unix-socket "$socket" -X POST http://localhost \
                     -d "$refresh_action" >/dev/null 2>&1 || break
             fi
@@ -676,7 +693,7 @@ fi
 # the picker, but retain their previous selection behavior on reload.
 tracking_args=()
 if fzf --help 2>/dev/null | grep -q -- '--id-nth'; then
-    tracking_args=(--track --id-nth=2)
+    tracking_args=(--track --id-nth=1,2)
 fi
 
 selected=$(emit_rows_for_mode | fzf \
@@ -689,9 +706,10 @@ selected=$(emit_rows_for_mode | fzf \
     --preview='id={2}; tmux capture-pane -e -p -t "${id##*:}" -S -120 2>/dev/null' \
     --preview-window="right,65%,border-left,wrap${preview_hidden_flag}" \
     --prompt="  " \
-    --header=$'\033[90mctrl-f mode  tab expand/preview  ctrl-x close  ctrl-p park  ctrl-w wait  ctrl-r reset\033[0m' \
+    --header=$'\033[90mctrl-f mode  tab expand/preview  ctrl-a read  ctrl-x close  ctrl-p park  ctrl-w wait  ctrl-r reset\033[0m' \
     --header-first \
     --bind="ctrl-j:down,ctrl-k:up" \
+    --bind="ctrl-a:execute-silent(bash '$0' --mark-read {2} {1})+reload(bash '$0' --state-dir '$state_dir' --rows)" \
     --bind="tab:transform(bash '$0' --state-dir '$state_dir' --tab-action)" \
     --bind="ctrl-f:$ctrl_f_bind" \
     --bind="ctrl-p:execute-silent(bash '$SCRIPT_DIR/park-target.sh' {2} {1})+reload(bash '$0' --state-dir '$state_dir' --rows)" \

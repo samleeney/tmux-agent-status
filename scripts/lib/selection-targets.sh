@@ -5,6 +5,9 @@
 [[ -n "${_SELECTION_TARGETS_LOADED:-}" ]] && return 0
 _SELECTION_TARGETS_LOADED=1
 
+# shellcheck source=completion-inbox.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/completion-inbox.sh"
+
 selection_scope() {
     local sel_name="$1"
     local sel_type="$2"
@@ -13,7 +16,7 @@ selection_scope() {
         S|W)
             echo "session"
             ;;
-        P)
+        P|C)
             local target="${sel_name#*:}"
             if [[ "$target" == w* ]]; then
                 echo "window"
@@ -33,7 +36,7 @@ selection_session() {
     local sel_type="$2"
 
     case "$sel_type" in
-        P)
+        P|C)
             echo "${sel_name%%:*}"
             ;;
         *)
@@ -46,7 +49,7 @@ selection_token() {
     local sel_name="$1"
     local sel_type="$2"
 
-    if [[ "$sel_type" == "P" ]]; then
+    if [[ "$sel_type" == "P" || "$sel_type" == "C" ]]; then
         echo "${sel_name#*:}"
     else
         echo "$sel_name"
@@ -224,6 +227,29 @@ selection_switch_client() {
             ;;
         session)
             tmux switch-client -t "$session" 2>/dev/null
+            ;;
+    esac
+    local switch_result=$?
+    if [ "$switch_result" -eq 0 ]; then
+        completion_ack_active
+    fi
+    return "$switch_result"
+}
+
+# Explicit acknowledgement applies to the selected scope. Merely highlighting
+# or previewing a row never acknowledges it.
+selection_mark_read() {
+    local scope target pane
+    scope=$(selection_scope "$1" "$2") || return 0
+    target=$(selection_tmux_target "$1" "$2")
+    case "$scope" in
+        pane) completion_mark_read "$target" ;;
+        window|session)
+            local args=()
+            [ "$scope" = session ] && args=(-s)
+            while IFS= read -r pane; do
+                completion_mark_read "$pane"
+            done < <(tmux list-panes "${args[@]}" -t "$target" -F '#{pane_id}' 2>/dev/null)
             ;;
     esac
 }
