@@ -27,7 +27,7 @@ for supported in 0 1; do
         bash "$REPO_DIR/scripts/hook-based-switcher.sh"
     if [[ "$supported" == 1 ]]; then
         grep -Fxq -- '--track' "$TMP_DIR/args"
-        grep -Fxq -- '--id-nth=2' "$TMP_DIR/args"
+        grep -Fxq -- '--id-nth=1,2' "$TMP_DIR/args"
     else
         if grep -Eq -- '^--(track|id-nth)' "$TMP_DIR/args"; then
             echo 'Older fzf must not receive identity tracking options' >&2

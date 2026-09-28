@@ -272,7 +272,7 @@ collect() {
     SEL_COUNT=${#SEL_NAMES[@]}
     (( SEL_COUNT == 0 )) && SELECTED=0
     (( SELECTED >= SEL_COUNT )) && SELECTED=$((SEL_COUNT - 1))
-    (( SELECTED < SESS_START )) && SELECTED=$SESS_START
+    (( SELECTED < 0 )) && SELECTED=0
 
     _collect_cur_client
 }
@@ -830,9 +830,9 @@ render() {
         (( ${#ftxt} >= LW )) && ftxt=" filter  ⏎ sel  esc cancel"
         fcol="$DIM"
     else
-        ftxt=" ⏎ select  / search  w wait  p park  m mode  q quit"
-        (( ${#ftxt} >= LW )) && ftxt=" ⏎ sel  / find  w wait  p park  q quit"
-        (( ${#ftxt} >= LW )) && ftxt=" ⏎sel /find w-wait p-park q-quit"
+        ftxt=" ⏎ select  a read  / search  w wait  p park  m mode  q quit"
+        (( ${#ftxt} >= LW )) && ftxt=" ⏎ sel  a read  / find  w wait  p park"
+        (( ${#ftxt} >= LW )) && ftxt=" ⏎sel a-read /find w-wait p-park"
         fcol="$DIM"
     fi
     (( LW > 1 && ${#ftxt} >= LW )) && ftxt="${ftxt:0:$((LW - 1))}"
@@ -1063,6 +1063,13 @@ action_park() {
     _LAST_STATUS_MTIME=""
 }
 
+action_mark_read() {
+    (( SEL_COUNT == 0 )) && return
+    selection_mark_read "${SEL_NAMES[$SELECTED]}" "${SEL_TYPES[$SELECTED]}"
+    _LAST_STATUS_MTIME=""
+    NEEDS_COLLECT=1
+}
+
 # ─── Main loop ────────────────────────────────────────────────────
 NEEDS_COLLECT=1
 NEEDS_RENDER=1
@@ -1149,7 +1156,7 @@ while true; do
                 seq+="$part"
             fi
             case "$seq" in
-                '[A') (( SELECTED > SESS_START )) && ((SELECTED--)); return 0 ;;
+                '[A') (( SELECTED > 0 )) && ((SELECTED--)); return 0 ;;
                 '[B') (( SELECTED < SEL_COUNT - 1 )) && ((SELECTED++)); return 0 ;;
                 '[<')
                     # SGR mouse: read "button;x;yM" or "button;x;ym"
@@ -1163,7 +1170,7 @@ while true; do
                         IFS=';' read -r mb mx my <<< "$mdata"
                         if (( mb == 64 )); then
                             # Scroll up
-                            (( SELECTED > SESS_START )) && ((SELECTED--))
+                            (( SELECTED > 0 )) && ((SELECTED--))
                         elif (( mb == 65 )); then
                             # Scroll down
                             (( SELECTED < SEL_COUNT - 1 )) && ((SELECTED++))
@@ -1252,7 +1259,7 @@ while true; do
                 j|k)
                     # Allow navigation even in search mode via ctrl sequences
                     [[ "$key" == "j" ]] && (( SELECTED < SEL_COUNT - 1 )) && ((SELECTED++))
-                    [[ "$key" == "k" ]] && (( SELECTED > SESS_START )) && ((SELECTED--))
+                    [[ "$key" == "k" ]] && (( SELECTED > 0 )) && ((SELECTED--))
                     ;;
                 [[:print:]])
                     SEARCH_QUERY+="$key"
@@ -1263,7 +1270,7 @@ while true; do
             # Normal mode input handling
             case "$key" in
                 j)  (( SELECTED < SEL_COUNT - 1 )) && ((SELECTED++)) ;;
-                k)  (( SELECTED > SESS_START )) && ((SELECTED--)) ;;
+                k)  (( SELECTED > 0 )) && ((SELECTED--)) ;;
                 $'\x1b')
                     if ! _handle_escape; then
                         exit 0
@@ -1275,6 +1282,7 @@ while true; do
                 m)   "$CURRENT_DIR/sidebar-toggle-mode.sh" >/dev/null 2>&1
                      NEEDS_COLLECT=1
                      ;;
+                a)   action_mark_read ;;
                 x)   action_close ;;
                 r)   "$CURRENT_DIR/hook-based-switcher.sh" --reset >/dev/null 2>&1
                      KNOWN_AGENTS=()

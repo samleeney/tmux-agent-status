@@ -97,6 +97,9 @@ chmod +x "$FAKE_BIN/pkill"
 
 echo "parked" > "$PANE_DIR/parked-task_%1.status"
 : > "$PARKED_DIR/parked-task_%1.parked"
+mkdir -p "$STATUS_DIR/completions/4242"
+completion_record="$STATUS_DIR/completions/4242/%1.saved.unread"
+printf '%%1\t300\t123\tclaude\n' > "$completion_record"
 
 reset_output="$(PATH="$FAKE_BIN:$PATH" HOME="$TEST_HOME" "$REPO_DIR/scripts/hook-based-switcher.sh" --reset)"
 
@@ -112,6 +115,10 @@ fi
 # Parked marker file should survive reset
 if [ ! -f "$PARKED_DIR/parked-task_%1.parked" ]; then
     echo "Assertion failed: parked marker should survive reset" >&2
+    exit 1
+fi
+if [ ! -f "$completion_record" ]; then
+    echo "Assertion failed: unread completion history should survive reset" >&2
     exit 1
 fi
 
